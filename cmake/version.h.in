@@ -1,0 +1,49 @@
+/******************************************************************************
+**
+** Copyright (C) 2026 Ivan Pinezhaninov <ivan.pinezhaninov@gmail.com>
+**
+** This file is part of the SQLon - which can be found at
+** https://github.com/IvanPinezhaninov/sqlon/.
+**
+** THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+** IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+** FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+** IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
+** DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
+** OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR
+** THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+**
+******************************************************************************/
+
+#ifndef SQLON_VERSION_H
+#define SQLON_VERSION_H
+
+/** @brief SQLon major version number. */
+#define SQLON_VERSION_MAJOR @PROJECT_VERSION_MAJOR@
+
+/** @brief SQLon minor version number. */
+#define SQLON_VERSION_MINOR @PROJECT_VERSION_MINOR@
+
+/** @brief SQLon patch version number. */
+#define SQLON_VERSION_PATCH @PROJECT_VERSION_PATCH@
+
+/** @brief SQLon version string. */
+#define SQLON_VERSION_STRING "@PROJECT_VERSION@"
+
+namespace sqlon {
+
+/** @brief SQLon major version number. */
+inline constexpr int version_major = SQLON_VERSION_MAJOR;
+
+/** @brief SQLon minor version number. */
+inline constexpr int version_minor = SQLON_VERSION_MINOR;
+
+/** @brief SQLon patch version number. */
+inline constexpr int version_patch = SQLON_VERSION_PATCH;
+
+/** @brief SQLon version string. */
+inline constexpr char version_string[] = SQLON_VERSION_STRING;
+
+} // namespace sqlon
+
+#endif // SQLON_VERSION_H

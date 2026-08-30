@@ -1,0 +1,265 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  platforms:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Linux GCC
+            os: ubuntu-24.04
+            configure_preset: gcc-release-static
+            build_preset: gcc-release-static
+            test_preset: gcc-release-static
+          - name: macOS AppleClang
+            os: macos-latest
+            configure_preset: clang-release-static
+            build_preset: clang-release-static
+            test_preset: clang-release-static
+          - name: Windows MSVC
+            os: windows-2022
+            configure_preset: msvc-static
+            build_preset: msvc-release-static
+            test_preset: msvc-release-static
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Configure
+        run: cmake --preset ${{ matrix.configure_preset }}
+
+      - name: Build
+        run: cmake --build --preset ${{ matrix.build_preset }} --parallel 2
+
+      - name: Test and verify installed packages
+        run: ctest --preset ${{ matrix.test_preset }} --parallel 2
+
+  packages:
+    name: Packages (${{ matrix.name }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Linux
+            os: ubuntu-24.04
+            configure_preset: gcc-release-shared-package
+            build_preset: gcc-release-shared-package
+            binary_dir: build/gcc-release-shared-package
+          - name: macOS
+            os: macos-latest
+            configure_preset: clang-release-shared-package
+            build_preset: clang-release-shared-package
+            binary_dir: build/clang-release-shared-package
+          - name: Windows
+            os: windows-2022
+            configure_preset: msvc-shared-package
+            build_preset: msvc-release-shared-package
+            binary_dir: build/msvc-shared-package
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install Linux packaging tools
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cpio dpkg-dev rpm unzip
+
+      - name: Configure
+        run: cmake --preset ${{ matrix.configure_preset }}
+
+      - name: Build
+        run: cmake --build --preset ${{ matrix.build_preset }} --parallel 2
+
+      - name: Generate TGZ and ZIP packages
+        run: |
+          cpack --config ${{ matrix.binary_dir }}/CPackConfig.cmake -C Release -G TGZ
+          cpack --config ${{ matrix.binary_dir }}/CPackConfig.cmake -C Release -G ZIP
+
+      - name: Generate DEB and RPM packages
+        if: runner.os == 'Linux'
+        run: |
+          cpack --config ${{ matrix.binary_dir }}/CPackConfig.cmake -C Release -G DEB
+          cpack --config ${{ matrix.binary_dir }}/CPackConfig.cmake -C Release -G RPM
+
+      - name: Verify Linux packages
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          package_dir="${GITHUB_WORKSPACE}/${{ matrix.binary_dir }}/packages"
+          deb_runtime="$(find "${package_dir}" -maxdepth 1 -name 'libsqlon[0-9]*_*.deb' -print -quit)"
+          deb_development="$(find "${package_dir}" -maxdepth 1 -name 'libsqlon-dev_*.deb' -print -quit)"
+          rpm_runtime="$(find "${package_dir}" -maxdepth 1 -name 'sqlon-[0-9]*.rpm' -print -quit)"
+          rpm_development="$(find "${package_dir}" -maxdepth 1 -name 'sqlon-devel-*.rpm' -print -quit)"
+          tgz_package="$(find "${package_dir}" -maxdepth 1 -name 'sqlon-*.tar.gz' -print -quit)"
+          zip_package="$(find "${package_dir}" -maxdepth 1 -name 'sqlon-*.zip' -print -quit)"
+
+          test -n "${deb_runtime}"
+          test -n "${deb_development}"
+          test -n "${rpm_runtime}"
+          test -n "${rpm_development}"
+          test -n "${tgz_package}"
+          test -n "${zip_package}"
+
+          (
+            cd "${package_dir}"
+            sha256sum -c ./*.sha256
+          )
+
+          deb_runtime_name="$(dpkg-deb --field "${deb_runtime}" Package)"
+          deb_runtime_version="$(dpkg-deb --field "${deb_runtime}" Version)"
+          test "$(dpkg-deb --field "${deb_development}" Depends)" = \
+            "${deb_runtime_name} (= ${deb_runtime_version})"
+
+          rpm_runtime_dependency="$(rpm -qp --qf '%{NAME} = %{VERSION}-%{RELEASE}\n' "${rpm_runtime}")"
+          rpm -qp --requires "${rpm_development}" | grep -Fx "${rpm_runtime_dependency}"
+
+          deb_root="${GITHUB_WORKSPACE}/build/packages/deb-root"
+          rpm_root="${GITHUB_WORKSPACE}/build/packages/rpm-root"
+          tgz_root="${GITHUB_WORKSPACE}/build/packages/tgz-root"
+          zip_root="${GITHUB_WORKSPACE}/build/packages/zip-root"
+          mkdir -p "${deb_root}" "${rpm_root}" "${tgz_root}" "${zip_root}"
+          dpkg-deb -x "${deb_runtime}" "${deb_root}"
+          dpkg-deb -x "${deb_development}" "${deb_root}"
+          (
+            cd "${rpm_root}"
+            rpm2cpio "${rpm_runtime}" | cpio -idmu
+            rpm2cpio "${rpm_development}" | cpio -idmu
+          )
+          tar -xzf "${tgz_package}" -C "${tgz_root}"
+          unzip -q "${zip_package}" -d "${zip_root}"
+
+          for package in deb rpm tgz zip; do
+            if [ "${package}" = deb ]; then
+              package_root="${deb_root}"
+            elif [ "${package}" = rpm ]; then
+              package_root="${rpm_root}"
+            elif [ "${package}" = tgz ]; then
+              package_root="$(find "${tgz_root}" -type d -path '*/usr' -printf '%h\n' -quit)"
+            else
+              package_root="$(find "${zip_root}" -type d -path '*/usr' -printf '%h\n' -quit)"
+            fi
+            test -n "${package_root}"
+
+            cmake \
+              -S tests/package_consumer \
+              -B "build/packages/${package}-consumer" \
+              -DCMAKE_PREFIX_PATH="${package_root}/usr"
+            cmake --build "build/packages/${package}-consumer" --parallel 2
+
+            library_dir="$(find "${package_root}/usr" -type f -name 'libsqlon.so.*' -printf '%h\n' -quit)"
+            test -n "${library_dir}"
+            LD_LIBRARY_PATH="${library_dir}" \
+              "build/packages/${package}-consumer/sqlon_package_consumer"
+          done
+
+      - name: Upload packages
+        uses: actions/upload-artifact@v7
+        with:
+          name: packages-${{ runner.os }}-${{ github.sha }}
+          path: ${{ matrix.binary_dir }}/packages
+          if-no-files-found: error
+
+  coverage:
+    name: Coverage
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install gcovr
+        run: pipx install gcovr==8.6
+
+      - name: Configure
+        run: cmake --preset gcc-debug-static-coverage
+
+      - name: Test and generate report
+        run: cmake --build --preset gcc-debug-static-coverage --parallel 2
+
+      - name: Add summary
+        run: cat build/gcc-debug-static-coverage/coverage-report/summary.txt >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Prepare Pages report
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        shell: python
+        run: |
+          import json
+          from pathlib import Path
+          import xml.etree.ElementTree as ElementTree
+
+          report_directory = Path("build/gcc-debug-static-coverage/coverage-report")
+          report = ElementTree.parse(report_directory / "coverage.xml")
+          percentage = float(report.getroot().attrib["line-rate"]) * 100
+
+          if percentage >= 90:
+              color = "brightgreen"
+          elif percentage >= 80:
+              color = "green"
+          elif percentage >= 70:
+              color = "yellowgreen"
+          elif percentage >= 60:
+              color = "yellow"
+          else:
+              color = "red"
+
+          badge = {
+              "schemaVersion": 1,
+              "label": "Coverage",
+              "message": f"{percentage:.1f}%",
+              "color": color,
+          }
+          (report_directory / "coverage.json").write_text(
+              json.dumps(badge, separators=(",", ":")) + "\n",
+              encoding="utf-8",
+          )
+
+      - name: Upload report
+        uses: actions/upload-artifact@v7
+        with:
+          name: coverage-${{ github.sha }}
+          path: build/gcc-debug-static-coverage/coverage-report
+          if-no-files-found: error
+
+      - name: Upload Pages report
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/upload-pages-artifact@v5
+        with:
+          path: build/gcc-debug-static-coverage/coverage-report
+
+  coverage-pages:
+    name: Publish coverage
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: coverage
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - name: Deploy coverage report
+        id: deployment
+        uses: actions/deploy-pages@v5
