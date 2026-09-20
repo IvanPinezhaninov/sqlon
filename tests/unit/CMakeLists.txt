@@ -24,6 +24,7 @@ add_executable(${SQLON_TEST_TARGET}
   test_InterfaceSurface.cpp
   test_PreparedQuery.cpp
   test_Query.cpp
+  test_RawExpression.cpp
   test_Render.cpp
   test_RenderMutation.cpp
   test_RenderSetCte.cpp

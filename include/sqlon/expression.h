@@ -110,6 +110,9 @@ SQLON_API detail::expression_ptr make_expression_node(detail::expression_kind ki
 SQLON_API detail::expression_ptr make_binary_node(std::string operation, detail::expression_ptr left,
                                                   detail::expression_ptr right);
 
+SQLON_API detail::expression_ptr make_raw_expression_node(std::string sql,
+                                                          std::vector<detail::expression_ptr> operands);
+
 SQLON_API std::size_t next_parameter_identity();
 
 SQLON_API bool valid_function_name(std::string_view name) noexcept;
@@ -683,7 +686,28 @@ auto coalesce(First&& first, Rest&&... rest)
   return function<value_type>("coalesce", first_expression, std::forward<Rest>(rest)...);
 }
 
-/** @brief Creates an explicit raw SQL expression. */
+/**
+ * @brief Creates a grouped raw SQL expression whose operands retain normal SQLon rendering and parameter handling.
+ *
+ * The SQL template is trusted syntax and is not escaped, validated for a database preset, or translated between
+ * dialects. Each `{}` position is replaced by the next operand after that operand passes through `to_expression()`.
+ * Do not put user-controlled text or database placeholders directly in the template.
+ */
+template<typename Result, typename... Operands>
+expression<Result> raw_expr(std::string sql, Operands&&... operands)
+{
+  std::vector<detail::expression_ptr> nodes{
+      detail::expression_access::node(to_expression(std::forward<Operands>(operands)))...};
+  return detail::expression_access::make<Result>(detail::make_raw_expression_node(std::move(sql), std::move(nodes)));
+}
+
+/**
+ * @brief Creates an opaque raw SQL expression from trusted syntax.
+ *
+ * The SQL text is emitted unchanged and receives no escaping or parameterization. Runtime values and SQLon
+ * expressions must be passed through `raw_expr()` operands instead. Database placeholders written here are not
+ * tracked by SQLon.
+ */
 template<typename T>
 expression<T> raw_sql(std::string sql)
 {

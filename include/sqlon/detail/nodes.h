@@ -55,7 +55,8 @@ enum class expression_kind : std::uint8_t {
   subquery,
   exists,
   keyword,
-  raw
+  raw,
+  raw_expression
 };
 
 enum class relation_kind : std::uint8_t { table, join, subquery, cte };

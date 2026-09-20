@@ -770,6 +770,8 @@ private:
       return render_window(*value);
     case detail::expression_kind::case_:
       return render_case(*value);
+    case detail::expression_kind::raw_expression:
+      return render_raw_expression(*value);
     case detail::expression_kind::raw:
       if (value->text.empty()) throw render_error{"a raw SQL expression cannot be empty"};
       return value->text;
@@ -782,6 +784,34 @@ private:
     default:
       throw render_error{"this expression kind is not implemented yet"};
     }
+  }
+
+  std::string render_raw_expression(const detail::expression_node& value)
+  {
+    if (value.text.empty()) throw render_error{"a raw expression template cannot be empty"};
+    if (value.operands.empty()) throw render_error{"a raw expression requires at least one operand"};
+
+    std::string sql{"("};
+    std::size_t operand_index = 0;
+    for (std::size_t index = 0; index < value.text.size(); ++index) {
+      const char character = value.text[index];
+      if (character == '{') {
+        if (index + 1 >= value.text.size() || value.text[index + 1] != '}')
+          throw render_error{"a raw expression template contains malformed syntax"};
+        if (operand_index >= value.operands.size())
+          throw render_error{"a raw expression has fewer operands than {} positions"};
+        sql += render_expression(value.operands[operand_index++]);
+        ++index;
+      } else if (character == '}') {
+        throw render_error{"a raw expression template contains malformed syntax"};
+      } else {
+        sql += character;
+      }
+    }
+
+    if (operand_index != value.operands.size())
+      throw render_error{"a raw expression has more operands than {} positions"};
+    return sql + ")";
   }
 
   std::string render_binary(const detail::expression_node& value, int parent_precedence)

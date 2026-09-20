@@ -42,6 +42,29 @@ detail::expression_ptr make_binary_node(std::string operation, detail::expressio
                               {std::move(left), std::move(right)});
 }
 
+detail::expression_ptr make_raw_expression_node(std::string sql, std::vector<detail::expression_ptr> operands)
+{
+  if (sql.empty()) throw invalid_query{"a raw expression template cannot be empty"};
+
+  std::size_t positions = 0;
+  for (std::size_t index = 0; index < sql.size(); ++index) {
+    if (sql[index] == '{') {
+      if (index + 1 >= sql.size() || sql[index + 1] != '}')
+        throw invalid_query{"a raw expression template contains malformed syntax"};
+      ++positions;
+      ++index;
+    } else if (sql[index] == '}') {
+      throw invalid_query{"a raw expression template contains malformed syntax"};
+    }
+  }
+
+  if (positions == 0 || operands.empty())
+    throw invalid_query{"a raw expression requires at least one {} position and operand; use raw_sql otherwise"};
+  if (positions != operands.size()) throw invalid_query{"a raw expression requires one operand for every {} position"};
+
+  return make_expression_node(detail::expression_kind::raw_expression, std::move(sql), std::move(operands));
+}
+
 std::size_t next_parameter_identity()
 {
   static std::atomic_size_t next_identity{1};

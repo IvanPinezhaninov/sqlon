@@ -15,11 +15,18 @@
 #
 #============================================================================
 
-add_subdirectory(advanced_query)
-add_subdirectory(custom_parameters)
-add_subdirectory(insert)
-add_subdirectory(join)
-add_subdirectory(raw_expression)
-add_subdirectory(select)
-add_subdirectory(update_delete)
-add_subdirectory(upsert)
+set(SQLON_RAW_EXPRESSION_EXAMPLE_TARGET sqlon_raw_expression_example)
+
+add_executable(${SQLON_RAW_EXPRESSION_EXAMPLE_TARGET}
+  main.cpp
+)
+
+target_link_libraries(${SQLON_RAW_EXPRESSION_EXAMPLE_TARGET}
+  PRIVATE
+    ${SQLON_LIBRARY_ALIAS_TARGET}
+)
+
+target_compile_features(${SQLON_RAW_EXPRESSION_EXAMPLE_TARGET}
+  PRIVATE
+    cxx_std_17
+)
